@@ -4,11 +4,11 @@ use arrow::array::RecordBatch;
 use scraper::{CaseSensitivity, Html, Selector};
 use serde_json::{Map, Value};
 
-use crate::{error::InSituLogError, util::common::TableBuilder};
+use crate::{error::AquaTrollLogError, util::common::TableBuilder};
 
 pub(crate) fn read_html<R: Read>(
     reader: &mut R,
-) -> Result<(Map<String, Value>, RecordBatch), InSituLogError> {
+) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
     let mut buf = vec![];
     let _ = reader.read_to_end(&mut buf)?;
 
@@ -45,13 +45,13 @@ pub(crate) fn read_html<R: Read>(
             // TODO: Parse values by HTML property
             let cur_attr = attrs
                 .last_mut()
-                .ok_or(InSituLogError::SectionHeaderNotFound)?;
+                .ok_or(AquaTrollLogError::SectionHeaderNotFound)?;
             row.text()
                 .collect::<String>()
                 .split_once("=")
                 .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
                 .map(|(k, v)| cur_attr.insert(k, Value::String(v)))
-                .ok_or(InSituLogError::InvalidData)?;
+                .ok_or(AquaTrollLogError::InvalidData)?;
         } else if is_data_header || is_data {
             let data = row
                 .select(&data_selector)
@@ -82,7 +82,7 @@ pub(crate) fn read_html<R: Read>(
 
 pub(crate) fn read_zipped_html<R: Read + Seek>(
     reader: R,
-) -> Result<(Map<String, Value>, RecordBatch), InSituLogError> {
+) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
     let mut zip = zip::ZipArchive::new(reader)?;
     let mut html_file = zip.by_index(0)?;
 

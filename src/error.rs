@@ -1,5 +1,5 @@
 #[derive(thiserror::Error, Debug)]
-pub enum InSituLogError {
+pub enum AquaTrollLogError {
     #[error(transparent)]
     StdIoError(#[from] std::io::Error),
     #[error(transparent)]

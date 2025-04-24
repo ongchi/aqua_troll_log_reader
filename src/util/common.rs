@@ -8,9 +8,9 @@ use arrow::{
 use chrono::{Local, NaiveDateTime};
 use serde_json::Value;
 
-use crate::error::InSituLogError;
+use crate::error::AquaTrollLogError;
 
-pub(crate) fn parse_datetime_str(datetime: &str) -> Result<i64, InSituLogError> {
+pub(crate) fn parse_datetime_str(datetime: &str) -> Result<i64, AquaTrollLogError> {
     let offset = *Local::now().offset();
     Ok(
         NaiveDateTime::parse_from_str(datetime, "%Y/%-m/%-d %p %I:%M:%S")
@@ -77,7 +77,7 @@ impl TableBuilder {
         self
     }
 
-    pub fn try_push_row(mut self, row_values: Vec<String>) -> Result<Self, InSituLogError> {
+    pub fn try_push_row(mut self, row_values: Vec<String>) -> Result<Self, AquaTrollLogError> {
         for (value_str, builder) in row_values.into_iter().zip(&mut self.data_builders) {
             match builder {
                 ArrayDataBuilder::DateTime(b) => b.append_value(parse_datetime_str(&value_str)?),
@@ -89,7 +89,7 @@ impl TableBuilder {
         Ok(self)
     }
 
-    pub fn try_build(mut self) -> Result<RecordBatch, InSituLogError> {
+    pub fn try_build(mut self) -> Result<RecordBatch, AquaTrollLogError> {
         let columns: Vec<_> = self
             .data_builders
             .iter_mut()
@@ -101,13 +101,13 @@ impl TableBuilder {
             .collect();
 
         Ok(RecordBatch::try_new(
-            self.schema.ok_or(InSituLogError::InvalidData)?,
+            self.schema.ok_or(AquaTrollLogError::InvalidData)?,
             columns,
         )?)
     }
 }
 
-pub(crate) fn record_batch_to_json(batch: &RecordBatch) -> Result<Value, InSituLogError> {
+pub(crate) fn record_batch_to_json(batch: &RecordBatch) -> Result<Value, AquaTrollLogError> {
     let buf = Vec::new();
     let mut writer = ArrayWriter::new(buf);
     writer.write(batch)?;

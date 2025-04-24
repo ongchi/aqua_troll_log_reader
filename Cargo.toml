@@ -1,5 +1,5 @@
 [package]
-name = "insitu_log_reader"
+name = "aqua_troll_log_reader"
 version = "0.1.0"
 edition = "2021"
 

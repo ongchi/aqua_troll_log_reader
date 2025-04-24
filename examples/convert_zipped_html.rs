@@ -5,16 +5,16 @@ use std::{
 
 use arrow::csv::Writer as CsvWriter;
 
-use insitu_log_reader::{InSituLogError, InSituLogReader};
+use aqua_troll_log_reader::{AquaTrollLogError, AquaTrollLogReader};
 
 // convert zipped html log file to json and csv files
-fn main() -> Result<(), InSituLogError> {
+fn main() -> Result<(), AquaTrollLogError> {
     let file = File::open(format!(
         "{}/testing/data/VuSitu_LiveReadings_2025-01-25_20-29-44_Device_Location.zip",
         env!["CARGO_MANIFEST_DIR"]
     ))?;
     let mut file = BufReader::new(&file);
-    let log = InSituLogReader::from_zipped_html(&mut file)?;
+    let log = AquaTrollLogReader::from_zipped_html(&mut file)?;
 
     // Write attr to json file
     let mut json_file = File::create("vusitu.json")?;

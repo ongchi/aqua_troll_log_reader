@@ -6,7 +6,7 @@ use std::io::{Cursor, Read, Seek};
 use arrow::array::RecordBatch;
 use encoding_rs::{ISO_8859_3, UTF_16LE};
 use encoding_rs_io::DecodeReaderBytesBuilder;
-pub use error::InSituLogError;
+pub use error::AquaTrollLogError;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use util::{
@@ -15,17 +15,17 @@ use util::{
 };
 
 #[derive(Debug)]
-pub struct InSituLogReader {
+pub struct AquaTrollLogReader {
     pub attr: Map<String, Value>,
     pub log_note: Option<RecordBatch>,
     pub log_data: RecordBatch,
 }
 
-impl InSituLogReader {
+impl AquaTrollLogReader {
     // TODO: Add troll calibration file reader
     // TODO: Check and convert unit of table data by numbat
 
-    pub fn from_csv<R: Read + Seek>(reader: &mut R) -> Result<Self, InSituLogError> {
+    pub fn from_csv<R: Read + Seek>(reader: &mut R) -> Result<Self, AquaTrollLogError> {
         let mut decode = DecodeReaderBytesBuilder::new()
             .encoding(Some(ISO_8859_3))
             .build(reader);
@@ -40,7 +40,7 @@ impl InSituLogReader {
         })
     }
 
-    pub fn from_txt<R: Read + Seek>(reader: &mut R) -> Result<Self, InSituLogError> {
+    pub fn from_txt<R: Read + Seek>(reader: &mut R) -> Result<Self, AquaTrollLogError> {
         // The exported txt log file from WinSitu is encodeded with UTF-16LE.
         let mut decode = DecodeReaderBytesBuilder::new()
             .encoding(Some(UTF_16LE))
@@ -63,7 +63,7 @@ impl InSituLogReader {
         })
     }
 
-    pub fn from_html<R: Read>(reader: &mut R) -> Result<Self, InSituLogError> {
+    pub fn from_html<R: Read>(reader: &mut R) -> Result<Self, AquaTrollLogError> {
         let (attr, log_data) = read_html(reader)?;
 
         Ok(Self {
@@ -73,7 +73,7 @@ impl InSituLogReader {
         })
     }
 
-    pub fn from_zipped_html<R: Read + Seek>(reader: &mut R) -> Result<Self, InSituLogError> {
+    pub fn from_zipped_html<R: Read + Seek>(reader: &mut R) -> Result<Self, AquaTrollLogError> {
         let (attr, log_data) = read_zipped_html(reader)?;
 
         Ok(Self {
@@ -83,7 +83,7 @@ impl InSituLogReader {
         })
     }
 
-    pub fn to_json(&self) -> Result<Value, InSituLogError> {
+    pub fn to_json(&self) -> Result<Value, AquaTrollLogError> {
         let mut json_object = Map::new();
 
         json_object.insert("attr".to_string(), Value::Object(self.attr.clone()));
@@ -104,7 +104,7 @@ impl InSituLogReader {
     }
 }
 
-impl Serialize for InSituLogReader {
+impl Serialize for AquaTrollLogReader {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.to_json()
             .map_err(serde::ser::Error::custom)?

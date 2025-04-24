@@ -58,6 +58,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "aqua_troll_log_reader"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "arrow-csv 54.2.0",
+ "arrow-schema 54.2.0",
+ "chrono",
+ "csv",
+ "encoding_rs",
+ "encoding_rs_io",
+ "quick-xml",
+ "scraper",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.3",
+ "zip",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -881,25 +900,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0c10553d664a4d0bcff9f4215d0aac67a639cc68ef660840afe309b807bc9f5"
 dependencies = [
  "generic-array",
-]
-
-[[package]]
-name = "insitu_log_reader"
-version = "0.1.0"
-dependencies = [
- "arrow",
- "arrow-csv 54.2.0",
- "arrow-schema 54.2.0",
- "chrono",
- "csv",
- "encoding_rs",
- "encoding_rs_io",
- "quick-xml",
- "scraper",
- "serde",
- "serde_json",
- "thiserror 2.0.3",
- "zip",
 ]
 
 [[package]]

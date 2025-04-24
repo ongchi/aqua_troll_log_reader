@@ -2,16 +2,16 @@ use std::fs::File;
 
 use arrow::json::ArrayWriter;
 
-use insitu_log_reader::{InSituLogError, InSituLogReader};
+use aqua_troll_log_reader::{AquaTrollLogError, AquaTrollLogReader};
 
 // Convert log file to json and csv format
-fn main() -> Result<(), InSituLogError> {
+fn main() -> Result<(), AquaTrollLogError> {
     let mut file = File::open(format!(
         "{}/testing/data/win_situ_record.csv",
         env!["CARGO_MANIFEST_DIR"]
     ))?;
 
-    let log = InSituLogReader::from_csv(&mut file)?;
+    let log = AquaTrollLogReader::from_csv(&mut file)?;
 
     // Write log_data to json file
     let log_data_json_file = File::create("win_situ_record.json")?;

@@ -3,7 +3,7 @@ use std::io::{BufRead, Seek, SeekFrom};
 use arrow::array::RecordBatch;
 use serde_json::{Map, Value};
 
-use crate::error::InSituLogError;
+use crate::error::AquaTrollLogError;
 
 use super::common::TableBuilder;
 
@@ -30,7 +30,7 @@ pub(crate) fn read_attr<R: BufRead + Seek>(
     reader: &mut R,
     attr: &mut Map<String, Value>,
     is_root: bool,
-) -> Result<(), InSituLogError> {
+) -> Result<(), AquaTrollLogError> {
     let mut buf = String::new();
 
     loop {
@@ -79,7 +79,7 @@ pub(crate) fn read_attr<R: BufRead + Seek>(
 
 fn detect_column_span<R: BufRead>(
     reader: &mut R,
-) -> Result<(usize, Vec<(usize, usize)>), InSituLogError> {
+) -> Result<(usize, Vec<(usize, usize)>), AquaTrollLogError> {
     let mut spans = vec![];
     let mut line_offset = 0usize;
 
@@ -89,7 +89,7 @@ fn detect_column_span<R: BufRead>(
         let read_size = reader.read_line(&mut buf)?;
 
         if read_size == 0 {
-            return Err(InSituLogError::UnexpectedEof);
+            return Err(AquaTrollLogError::UnexpectedEof);
         }
 
         let buf_trim = buf.trim();
@@ -129,7 +129,9 @@ fn detect_column_span<R: BufRead>(
 }
 
 /// Parse table data of the log file
-pub(crate) fn read_table<R: BufRead + Seek>(reader: &mut R) -> Result<RecordBatch, InSituLogError> {
+pub(crate) fn read_table<R: BufRead + Seek>(
+    reader: &mut R,
+) -> Result<RecordBatch, AquaTrollLogError> {
     let mut buf = String::new();
 
     let start_pos = reader.stream_position()?; // Get current position of reader
@@ -193,7 +195,7 @@ pub(crate) fn read_table<R: BufRead + Seek>(reader: &mut R) -> Result<RecordBatc
 
 pub(crate) fn read_log_data_attr<R: BufRead + Seek>(
     reader: &mut R,
-) -> Result<Map<String, Value>, InSituLogError> {
+) -> Result<Map<String, Value>, AquaTrollLogError> {
     let mut buf = String::new();
 
     // Skip until "Log Data:"
@@ -263,19 +265,19 @@ pub(crate) fn read_log_data_attr<R: BufRead + Seek>(
                 .split_whitespace()
                 .next()
                 .and_then(|k| k.parse::<usize>().ok())
-                .ok_or(InSituLogError::InvalidData)?
+                .ok_or(AquaTrollLogError::InvalidData)?
                 != n
             {
-                return Err(InSituLogError::InvalidData);
+                return Err(AquaTrollLogError::InvalidData);
             }
             let serial = key
                 .split_whitespace()
                 .last()
-                .ok_or(InSituLogError::InvalidData)?;
+                .ok_or(AquaTrollLogError::InvalidData)?;
             let sensor = value;
             sensors.push((sensor.to_string(), serial.to_string()))
         } else {
-            return Err(InSituLogError::InvalidData);
+            return Err(AquaTrollLogError::InvalidData);
         };
 
         buf.clear();
@@ -303,11 +305,11 @@ pub(crate) fn read_log_data_attr<R: BufRead + Seek>(
     let _ = reader.read_line(&mut buf)?;
     if let LineContent::Entry(key, value) = parse_line_content(&buf) {
         if key != "Time Zone" {
-            return Err(InSituLogError::InvalidData);
+            return Err(AquaTrollLogError::InvalidData);
         }
         log_data.insert(key.to_string(), Value::String(value.to_string()));
     } else {
-        return Err(InSituLogError::InvalidData);
+        return Err(AquaTrollLogError::InvalidData);
     };
 
     Ok(log_data)

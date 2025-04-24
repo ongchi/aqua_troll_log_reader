@@ -4,12 +4,14 @@ use arrow::array::RecordBatch;
 use csv::ErrorKind;
 use csv::StringRecord;
 
-use crate::error::InSituLogError;
+use crate::error::AquaTrollLogError;
 
 use super::common::TableBuilder;
 
 /// Read csv log data
-pub(crate) fn read_table<R: BufRead + Seek>(reader: &mut R) -> Result<RecordBatch, InSituLogError> {
+pub(crate) fn read_table<R: BufRead + Seek>(
+    reader: &mut R,
+) -> Result<RecordBatch, AquaTrollLogError> {
     let mut builder = csv::ReaderBuilder::new();
     builder.has_headers(true);
     let mut csv_reader = builder.from_reader(reader);
@@ -38,7 +40,7 @@ pub(crate) fn read_table<R: BufRead + Seek>(reader: &mut R) -> Result<RecordBatc
             }
             Err(e) => match e.kind() {
                 ErrorKind::UnequalLengths { .. } => break,
-                _ => return Err(InSituLogError::from(e)),
+                _ => return Err(AquaTrollLogError::from(e)),
             },
         }
     }
