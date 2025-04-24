@@ -17,6 +17,8 @@ pub enum InSituLogError {
     #[error(transparent)]
     CsvError(#[from] csv::Error),
     #[error(transparent)]
+    SerdeJsonError(#[from] serde_json::Error),
+    #[error(transparent)]
     ZipError(#[from] zip::result::ZipError),
     #[error("Unexpected EOF")]
     UnexpectedEof,

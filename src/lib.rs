@@ -7,9 +7,11 @@ use arrow::array::RecordBatch;
 use encoding_rs::{ISO_8859_3, UTF_16LE};
 use encoding_rs_io::DecodeReaderBytesBuilder;
 pub use error::InSituLogError;
+use serde::Serialize;
 use serde_json::{Map, Value};
 use util::{
-    read_attr, read_csv_table, read_html, read_log_data_attr, read_table, read_zipped_html,
+    common::record_batch_to_json, read_attr, read_csv_table, read_html, read_log_data_attr,
+    read_table, read_zipped_html,
 };
 
 #[derive(Debug)]
@@ -79,5 +81,33 @@ impl InSituLogReader {
             log_note: None,
             log_data,
         })
+    }
+
+    pub fn to_json(&self) -> Result<Value, InSituLogError> {
+        let mut json_object = Map::new();
+
+        json_object.insert("attr".to_string(), Value::Object(self.attr.clone()));
+        json_object.insert(
+            "log_note".to_string(),
+            if self.log_note.is_some() {
+                record_batch_to_json(self.log_note.as_ref().unwrap())?
+            } else {
+                Value::Null
+            },
+        );
+        json_object.insert(
+            "log_data".to_string(),
+            record_batch_to_json(&self.log_data)?,
+        );
+
+        Ok(Value::Object(json_object))
+    }
+}
+
+impl Serialize for InSituLogReader {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.to_json()
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
     }
 }

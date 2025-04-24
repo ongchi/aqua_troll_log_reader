@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use arrow::json::ArrayWriter;
 use arrow::{
     array::{ArrayRef, GenericStringBuilder, PrimitiveBuilder, RecordBatch},
     datatypes::{DataType, Field, Float64Type, Schema, SchemaRef, TimeUnit, TimestampSecondType},
 };
 use chrono::{Local, NaiveDateTime};
+use serde_json::Value;
 
 use crate::error::InSituLogError;
 
@@ -103,6 +105,16 @@ impl TableBuilder {
             columns,
         )?)
     }
+}
+
+pub(crate) fn record_batch_to_json(batch: &RecordBatch) -> Result<Value, InSituLogError> {
+    let buf = Vec::new();
+    let mut writer = ArrayWriter::new(buf);
+    writer.write(batch)?;
+    writer.finish()?;
+    let json_data = writer.into_inner();
+
+    Ok(serde_json::from_reader(json_data.as_slice())?)
 }
 
 #[cfg(test)]
