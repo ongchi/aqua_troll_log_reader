@@ -4,18 +4,17 @@ use arrow::{
     array::{ArrayRef, GenericStringBuilder, PrimitiveBuilder, RecordBatch},
     datatypes::{DataType, Field, Float64Type, Schema, SchemaRef, TimeUnit, TimestampSecondType},
 };
-use chrono::{FixedOffset, NaiveDateTime};
+use chrono::{Local, NaiveDateTime};
 
 use crate::error::InSituLogError;
 
 pub(crate) fn parse_datetime_str(datetime: &str) -> Result<i64, InSituLogError> {
-    let tz = FixedOffset::east_opt(8 * 3600).unwrap();
+    let offset = *Local::now().offset();
     Ok(
         NaiveDateTime::parse_from_str(datetime, "%Y/%-m/%-d %p %I:%M:%S")
             .or_else(|_| NaiveDateTime::parse_from_str(datetime, "%Y/%-m/%-d %I:%M:%S %p"))
             .or_else(|_| NaiveDateTime::parse_from_str(datetime, "%Y-%-m-%-d %H:%M:%S"))
-            .map(|t| t.and_local_timezone(tz).unwrap())
-            .map(|t| t.to_utc())
+            .map(|t| t.and_local_timezone(offset).unwrap())
             .map(|t| t.timestamp())?,
     )
 }
