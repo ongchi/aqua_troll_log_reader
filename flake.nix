@@ -10,16 +10,11 @@
       url = "github:nix-community/naersk";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
   outputs =
-    { self
-    , fenix
-    , flake-utils
-    , nixpkgs
-    , naersk
-    ,
-    }:
+    { self, fenix, flake-utils, nixpkgs, naersk, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
     let
       toolchain = with fenix.packages.${system};
@@ -31,7 +26,11 @@
           stable.rustfmt
           stable.rust-analyzer
         ];
-      pkgs = nixpkgs.legacyPackages.${system};
+
+      overlays = [ (import rust-overlay) ];
+      pkgs = import nixpkgs {
+        inherit system overlays;
+      };
 
       naersk' = pkgs.callPackage naersk { cargo = toolchain; rustc = toolchain; };
     in
@@ -51,6 +50,7 @@
         buildInputs = [
           toolchain
           pkgs.libiconv
+          pkgs.cargo-audit
           pkgs.bacon
         ];
         packages = (with pkgs.nodePackages; [ pnpm ]);
