@@ -33,10 +33,19 @@ impl AquaTrollLogReader {
         let _ = decode.read_to_end(&mut buf)?;
         let mut reader = Cursor::new(buf);
 
+        let log_data = match read_csv_table(&mut reader) {
+            Ok(data) => data,
+            Err(AquaTrollLogError::WithCsvPartialResult(part_result)) => {
+                tracing::warn!("{:?}", part_result.errors);
+                part_result.result
+            }
+            Err(e) => return Err(e),
+        };
+
         Ok(Self {
             attr: Map::new(),
             log_note: None,
-            log_data: read_csv_table(&mut reader)?,
+            log_data,
         })
     }
 

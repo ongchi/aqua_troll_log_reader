@@ -8,6 +8,23 @@ use crate::error::AquaTrollLogError;
 
 use super::common::TableBuilder;
 
+#[derive(thiserror::Error, Debug)]
+pub struct CsvErrorWithPartialResult {
+    pub(crate) result: RecordBatch,
+    pub(crate) errors: Vec<csv::Error>,
+}
+
+impl std::fmt::Display for CsvErrorWithPartialResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "CSV Error with partial result:")?;
+        for e in &self.errors {
+            writeln!(f, "{e}")?;
+        }
+
+        Ok(())
+    }
+}
+
 /// Read csv log data
 pub(crate) fn read_table<R: BufRead + Seek>(
     reader: &mut R,
@@ -25,6 +42,8 @@ pub(crate) fn read_table<R: BufRead + Seek>(
     let mut table_builder = TableBuilder::new().field_names(fields.clone());
     let mut record = StringRecord::new();
 
+    let mut csv_errors: Vec<csv::Error> = vec![];
+
     loop {
         match csv_reader.read_record(&mut record) {
             Ok(next) => {
@@ -39,13 +58,26 @@ pub(crate) fn read_table<R: BufRead + Seek>(
                 }
             }
             Err(e) => match e.kind() {
-                ErrorKind::UnequalLengths { .. } => break,
+                // Skip invalid rows
+                ErrorKind::UnequalLengths { .. } => {
+                    csv_errors.push(e);
+                    continue;
+                }
                 _ => return Err(AquaTrollLogError::from(e)),
             },
         }
     }
 
-    table_builder.try_build()
+    if csv_errors.is_empty() {
+        table_builder.try_build()
+    } else {
+        Err(AquaTrollLogError::WithCsvPartialResult(
+            CsvErrorWithPartialResult {
+                result: table_builder.try_build()?,
+                errors: csv_errors,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -114,12 +146,18 @@ Date/Time,Temp(C),CNDCT(µS/cm),SPCNDCT(µS/cm),R(ohm-cm),SA(PSU),TDS(ppm),pH(pH
 2025/1/25 05:15:06 PM,21.6019,416.245,445.136,2402.43,0.216156,289.339,7.40582,173.966,5.43175,56.0774
 2025/1/25 05:15:36 PM,21.6097,416.924,445.791,2398.52,0.216483,289.764,7.40086,172.221,5.33604,55.0975
 2025/1/25 05:16:06 PM,21.6239,416.77,445.497,2399.41,0.216336,289.573,7.40294,169.58
+Date/Time,Temp(C),CNDCT(µS/cm),SPCNDCT(µS/cm),R(ohm-cm),SA(PSU),TDS(ppm),pH(pH),ORP(mV),DO(con)(mg/L),DO(%sat)(%Sat)
+2025/1/25 05:16:36 PM,21.6365,416.756,445.368,2399.49,0.216272,289.489,7.40594,166.954,5.14173,53.1185
+2025/1/25 05:17:06 PM,21.6499,416.724,445.211,2399.67,0.216194,289.387,7.40294,165.011,5.04762,52.1598
 "#;
 
     #[test]
     fn test_read_incomplete_table() {
         let mut reader = Cursor::new(LOG_DATA_INCOMPLETE_CSV);
-        let data_table = read_table(&mut reader).unwrap();
-        assert_eq!(data_table.num_rows(), 2);
+        let data_table = match read_table(&mut reader) {
+            Err(AquaTrollLogError::WithCsvPartialResult(partial_result)) => partial_result.result,
+            _ => panic!("Expected a CSV error with partial result"),
+        };
+        assert_eq!(data_table.num_rows(), 4);
     }
 }

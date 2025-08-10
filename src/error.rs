@@ -24,4 +24,6 @@ pub enum AquaTrollLogError {
     SectionHeaderNotFound,
     #[error("Invalid Data")]
     InvalidData,
+    #[error(transparent)]
+    WithCsvPartialResult(#[from] crate::util::csv_reader::CsvErrorWithPartialResult),
 }
