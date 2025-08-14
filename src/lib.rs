@@ -6,7 +6,7 @@ use std::io::{Cursor, Read, Seek};
 use arrow::array::RecordBatch;
 use encoding_rs::{ISO_8859_3, UTF_16LE};
 use encoding_rs_io::DecodeReaderBytesBuilder;
-pub use error::AquaTrollLogError;
+pub use error::{AquaTrollLogError, ErrorWithPartialResult};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use util::{
@@ -36,8 +36,16 @@ impl AquaTrollLogReader {
         let log_data = match read_csv_table(&mut reader) {
             Ok(data) => data,
             Err(AquaTrollLogError::WithCsvPartialResult(part_result)) => {
-                tracing::warn!("{:?}", part_result.errors);
-                part_result.result
+                return Err(AquaTrollLogError::WithPartialResult(
+                    ErrorWithPartialResult {
+                        result: Box::new(Self {
+                            attr: Map::new(),
+                            log_note: None,
+                            log_data: *part_result.result,
+                        }),
+                        errors: part_result.errors,
+                    },
+                ));
             }
             Err(e) => return Err(e),
         };

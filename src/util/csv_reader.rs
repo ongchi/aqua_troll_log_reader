@@ -9,14 +9,14 @@ use crate::error::AquaTrollLogError;
 use super::common::TableBuilder;
 
 #[derive(thiserror::Error, Debug)]
-pub struct CsvErrorWithPartialResult {
-    pub(crate) result: RecordBatch,
+pub struct ErrorWithCsvPartialResult {
+    pub(crate) result: Box<RecordBatch>,
     pub(crate) errors: Vec<csv::Error>,
 }
 
-impl std::fmt::Display for CsvErrorWithPartialResult {
+impl std::fmt::Display for ErrorWithCsvPartialResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "CSV Error with partial result:")?;
+        writeln!(f, "CSV error with partial result:")?;
         for e in &self.errors {
             writeln!(f, "{e}")?;
         }
@@ -72,8 +72,8 @@ pub(crate) fn read_table<R: BufRead + Seek>(
         table_builder.try_build()
     } else {
         Err(AquaTrollLogError::WithCsvPartialResult(
-            CsvErrorWithPartialResult {
-                result: table_builder.try_build()?,
+            ErrorWithCsvPartialResult {
+                result: Box::new(table_builder.try_build()?),
                 errors: csv_errors,
             },
         ))
