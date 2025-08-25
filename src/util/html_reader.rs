@@ -1,11 +1,16 @@
 use std::io::{Read, Seek};
 
 use arrow::array::RecordBatch;
+use num_traits::FromPrimitive;
 use scraper::{CaseSensitivity, Html, Selector};
 use serde_json::{Map, Value};
 
+use super::param::Parameter;
+use super::unit::Unit;
 use crate::{error::AquaTrollLogError, util::common::TableBuilder};
 
+// Log reader for In-Situ HTML files
+// ref: https://in-situ.com/en/html-parsing-guide
 pub(crate) fn read_html<R: Read>(
     reader: &mut R,
 ) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
@@ -57,11 +62,65 @@ pub(crate) fn read_html<R: Read>(
                 .select(&data_selector)
                 .map(|h| h.text().collect::<String>())
                 .collect();
-            // dbg!(&data);
 
             if is_data_header {
+                let attrs: Vec<&str> = row
+                    .select(&data_selector)
+                    .map(|h| h.attr("isi-data-column-header").unwrap_or(""))
+                    .collect();
+
+                let params: Vec<Option<Parameter>> = row
+                    .select(&data_selector)
+                    .map(|h| h.attr("isi-parameter-type").unwrap_or(""))
+                    .map(|v| v.parse().unwrap_or(0))
+                    .map(Parameter::from_u8)
+                    .collect();
+
+                let units: Vec<Option<Unit>> = row
+                    .select(&data_selector)
+                    .map(|h| h.attr("isi-unit-type").unwrap_or(""))
+                    .map(|v| v.parse().unwrap_or(0))
+                    .map(Unit::from_u16)
+                    .collect();
+
+                let serials: Vec<Option<u64>> = row
+                    .select(&data_selector)
+                    .map(|h| h.attr("isi-sensor-serial-number").unwrap_or(""))
+                    .map(|v| v.parse().ok())
+                    .collect();
+
+                let mut fields: Vec<String> = vec![];
+                for (a, (p, (u, s))) in attrs
+                    .into_iter()
+                    .zip(params.into_iter().zip(units.into_iter().zip(serials)))
+                {
+                    let field_name = if let Some(param) = p {
+                        if let Some(unit) = u {
+                            if let Some(serial) = s {
+                                format!("{} ({}) ({})", param, unit, serial)
+                            } else {
+                                format!("{} ({})", param, unit)
+                            }
+                        } else {
+                            param.to_string()
+                        }
+                    } else if a == "DateTime" {
+                        "Date Time".to_string()
+                    } else if a == "Marked" {
+                        "Marked".to_string()
+                    } else {
+                        let n_unknown = fields.iter().filter(|s| s.starts_with("Unknown")).count();
+                        if n_unknown > 0 {
+                            "Unknown_{:02}".to_string()
+                        } else {
+                            "Unknown".to_string()
+                        }
+                    };
+                    fields.push(field_name);
+                }
+
                 // TODO: Extract sensor serial number from field name
-                table_builder = table_builder.field_names(data);
+                table_builder = table_builder.field_names(fields);
             } else {
                 table_builder = table_builder.try_push_row(data)?;
             }
@@ -69,13 +128,11 @@ pub(crate) fn read_html<R: Read>(
     }
 
     let log_data = table_builder.try_build()?;
-    // dbg!(&log_data);
 
     let mut attr = Map::new();
     for (k, v) in attr_headers.into_iter().zip(attrs) {
         attr.insert(k, Value::Object(v));
     }
-    // dbg!(&attr);
 
     Ok((attr, log_data))
 }
@@ -174,18 +231,18 @@ mod tests {
                 "Actual Conductivity (µS/cm) (999997)",
                 "Specific Conductivity (µS/cm) (999997)",
                 "Salinity (PSU) (999997)",
-                "Resistivity (Ω⋅cm) (999997)",
-                "Density (g/cm³) (999997)",
-                "Total Dissolved Solids (ppm) (999997)",
-                "RDO Concentration (mg/L) (999995)",
-                "RDO Saturation (%Sat) (999995)",
-                "Oxygen Partial Pressure (Torr) (999995)",
+                "Resistivity (Ω-cm) (999997)",
+                "Density of Water (g/cm³) (999997)",
+                "TDS (ppm) (999997)",
+                "DO (mg/L) (999995)",
+                "DO % Saturation (DO % sat) (999995)",
+                "pO₂ (Torr) (999995)",
                 "pH (pH) (999991)",
-                "pH mV (mV) (999991)",
+                "pH(mV) (mV) (999991)",
                 "ORP (mV) (999991)",
                 "Turbidity (NTU) (999998)",
                 "Temperature (°C) (999996)",
-                "Barometric Pressure (mm Hg) (999996)",
+                "Barometric Pressure (mmHg) (999996)",
                 "Pressure (psi) (999999)",
                 "Depth (m) (999999)",
                 "External Voltage (V) (999996)",

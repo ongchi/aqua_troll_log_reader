@@ -44,7 +44,7 @@ impl TableBuilder {
         let fields: Vec<Field> = field_names
             .into_iter()
             .map(|c| {
-                if ["Date and Time", "Date Time", "Date/Time"].contains(&c.as_str()) {
+                if ["Date and Time", "Date Time", "Date/Time", "DateTime"].contains(&c.as_str()) {
                     Field::new(c, DataType::Timestamp(TimeUnit::Second, None), false)
                 } else if c == "Note" || c == "Marked" {
                     Field::new(c, DataType::Utf8, false)
