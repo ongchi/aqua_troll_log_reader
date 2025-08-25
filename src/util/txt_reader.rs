@@ -13,7 +13,7 @@ enum LineContent<'a> {
     Entry(&'a str, &'a str),
 }
 
-fn parse_line_content(line: &str) -> LineContent {
+fn parse_line_content(line: &str) -> LineContent<'_> {
     let line_trim = line.trim();
     line_trim
         .split_once(":")
