@@ -17,18 +17,18 @@ fn main() -> Result<(), AquaTrollLogError> {
     let log = AquaTrollLogReader::from_zipped_html(&mut file)?;
 
     // Write attr to json file
-    let mut json_file = File::create("vusitu.json")?;
+    let mut json_file = File::create("ex_html_attr.json")?;
     let json_str = serde_json::to_string_pretty(&log.attr).unwrap();
     json_file.write_all(json_str.as_bytes())?;
 
     // Wite log_note to csv file
     if let Some(log_note) = log.log_note {
-        let log_note_csv_file = File::create("vusitu_note.csv")?;
+        let log_note_csv_file = File::create("ex_html_note.csv")?;
         CsvWriter::new(log_note_csv_file).write(&log_note)?;
     }
 
     // Write log_data to csv file
-    let log_data_csv_file = File::create("vusitu_data.csv")?;
+    let log_data_csv_file = File::create("ex_html_data.csv")?;
     CsvWriter::new(log_data_csv_file).write(&log.log_data)?;
 
     Ok(())

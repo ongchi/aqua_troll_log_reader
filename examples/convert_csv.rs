@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use arrow::json::ArrayWriter;
+use arrow::csv::Writer as CsvWriter;
 
 use aqua_troll_log_reader::{AquaTrollLogError, AquaTrollLogReader};
 
@@ -14,10 +14,8 @@ fn main() -> Result<(), AquaTrollLogError> {
     let log = AquaTrollLogReader::from_csv(&mut file)?;
 
     // Write log_data to json file
-    let log_data_json_file = File::create("win_situ_record.json")?;
-    let mut csv_writer = ArrayWriter::new(log_data_json_file);
-    csv_writer.write(&log.log_data)?;
-    csv_writer.finish()?;
+    let log_data_json_file = File::create("ex_csv_data.csv")?;
+    CsvWriter::new(log_data_json_file).write(&log.log_data)?;
 
     Ok(())
 }
