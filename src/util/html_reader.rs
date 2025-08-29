@@ -1,9 +1,10 @@
 use std::io::{Read, Seek};
 
 use arrow::array::RecordBatch;
+use itertools::izip;
 use num_traits::FromPrimitive;
-use scraper::{CaseSensitivity, Html, Selector};
-use serde_json::{Map, Value};
+use scraper::{Html, Selector};
+use serde_json::{json, Map, Value};
 
 use super::param::Parameter;
 use super::unit::Unit;
@@ -19,35 +20,31 @@ pub(crate) fn read_html<R: Read>(
 
     let mut attr_headers: Vec<String> = vec![];
     let mut attrs: Vec<Map<String, Value>> = vec![];
+    let mut sensors: Vec<(String, u32, u64)> = vec![];
 
     // convert bytes into string
     let html = String::from_utf8(buf)?;
     let document = Html::parse_document(&html);
-    let header_selector = Selector::parse("tr").unwrap();
-    let data_selector = Selector::parse("td").unwrap();
+    let header_selector = Selector::parse("table#isi-report tr").unwrap();
+    let data_selector = Selector::parse("table#isi-report td").unwrap();
 
     let mut table_builder = TableBuilder::new();
 
     for row in document.select(&header_selector) {
         let is_section_header = row
-            .value()
-            .has_class("sectionHeader", CaseSensitivity::AsciiCaseInsensitive);
+            .child_elements()
+            .any(|el| el.value().attrs().any(|attr| attr.0 == "isi-group"));
         let is_section_member = row
-            .value()
-            .has_class("sectionMember", CaseSensitivity::AsciiCaseInsensitive);
-        let is_data_header = row
-            .value()
-            .has_class("dataHeader", CaseSensitivity::AsciiCaseInsensitive);
-        let is_data = row
-            .value()
-            .has_class("data", CaseSensitivity::AsciiCaseInsensitive);
+            .child_elements()
+            .any(|el| el.value().attrs().any(|attr| attr.0 == "isi-group-member"));
+        let is_data_header = row.value().attrs().any(|attr| attr.0 == "isi-data-table");
+        let is_data = row.value().attrs().any(|attr| attr.0 == "isi-data-row");
 
         if is_section_header {
             let header = row.text().collect::<String>();
             attr_headers.push(header);
             attrs.push(Map::new());
         } else if is_section_member {
-            // TODO: Parse values by HTML property
             let cur_attr = attrs
                 .last_mut()
                 .ok_or(AquaTrollLogError::SectionHeaderNotFound)?;
@@ -57,77 +54,109 @@ pub(crate) fn read_html<R: Read>(
                 .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
                 .map(|(k, v)| cur_attr.insert(k, Value::String(v)))
                 .ok_or(AquaTrollLogError::InvalidData)?;
-        } else if is_data_header || is_data {
+        } else if is_data_header {
+            let attrs: Vec<&str> = row
+                .select(&data_selector)
+                .filter_map(|h| h.attr("isi-data-column-header"))
+                .collect();
+
+            let params: Vec<Option<Parameter>> = row
+                .select(&data_selector)
+                .map(|h| h.attr("isi-parameter-type").unwrap_or(""))
+                .map(|v| v.parse().unwrap_or(0))
+                .map(Parameter::from_u8)
+                .collect();
+
+            let units: Vec<Option<Unit>> = row
+                .select(&data_selector)
+                .map(|h| h.attr("isi-unit-type").unwrap_or(""))
+                .map(|v| v.parse().unwrap_or(0))
+                .map(Unit::from_u16)
+                .collect();
+
+            let sensor_types: Vec<Option<u32>> = row
+                .select(&data_selector)
+                .map(|h| h.attr("isi-sensor-type").unwrap_or(""))
+                .map(|v| v.parse().ok())
+                .collect();
+
+            let sensor_serials: Vec<Option<u64>> = row
+                .select(&data_selector)
+                .map(|h| h.attr("isi-sensor-serial-number").unwrap_or(""))
+                .map(|v| v.parse().ok())
+                .collect();
+
+            let mut fields: Vec<String> = vec![];
+            for (_attr, _param, _unit, _serial, _type) in
+                izip!(attrs, params, units, sensor_serials, sensor_types)
+            {
+                let field_name = if let Some(param) = _param {
+                    if let Some(unit) = _unit {
+                        // Collect sensor infomation
+                        if _serial.is_some() | _type.is_some() {
+                            if let Some(serial) = _serial {
+                                if let Some(type_) = _type {
+                                    sensors.push((param.to_string(), type_, serial));
+                                } else {
+                                    tracing::warn!("{}: Sensor type not found", param)
+                                }
+                            } else {
+                                tracing::warn!("{}: Sensor serial not found", param)
+                            };
+                        }
+
+                        format!("{} ({})", param, unit)
+                    } else {
+                        param.to_string()
+                    }
+                } else if _attr == "DateTime" {
+                    "Date Time".to_string()
+                } else if _attr == "Marked" {
+                    "Marked".to_string()
+                } else {
+                    let n_unknown = fields.iter().filter(|s| s.starts_with("Unknown")).count();
+                    if n_unknown > 0 {
+                        "Unknown_{:02}".to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                };
+                fields.push(field_name);
+            }
+
+            table_builder = table_builder.field_names(fields);
+        } else if is_data {
             let data = row
                 .select(&data_selector)
                 .map(|h| h.text().collect::<String>())
                 .collect();
 
-            if is_data_header {
-                let attrs: Vec<&str> = row
-                    .select(&data_selector)
-                    .map(|h| h.attr("isi-data-column-header").unwrap_or(""))
-                    .collect();
-
-                let params: Vec<Option<Parameter>> = row
-                    .select(&data_selector)
-                    .map(|h| h.attr("isi-parameter-type").unwrap_or(""))
-                    .map(|v| v.parse().unwrap_or(0))
-                    .map(Parameter::from_u8)
-                    .collect();
-
-                let units: Vec<Option<Unit>> = row
-                    .select(&data_selector)
-                    .map(|h| h.attr("isi-unit-type").unwrap_or(""))
-                    .map(|v| v.parse().unwrap_or(0))
-                    .map(Unit::from_u16)
-                    .collect();
-
-                let serials: Vec<Option<u64>> = row
-                    .select(&data_selector)
-                    .map(|h| h.attr("isi-sensor-serial-number").unwrap_or(""))
-                    .map(|v| v.parse().ok())
-                    .collect();
-
-                let mut fields: Vec<String> = vec![];
-                for (a, (p, (u, s))) in attrs
-                    .into_iter()
-                    .zip(params.into_iter().zip(units.into_iter().zip(serials)))
-                {
-                    let field_name = if let Some(param) = p {
-                        if let Some(unit) = u {
-                            if let Some(serial) = s {
-                                format!("{} ({}) ({})", param, unit, serial)
-                            } else {
-                                format!("{} ({})", param, unit)
-                            }
-                        } else {
-                            param.to_string()
-                        }
-                    } else if a == "DateTime" {
-                        "Date Time".to_string()
-                    } else if a == "Marked" {
-                        "Marked".to_string()
-                    } else {
-                        let n_unknown = fields.iter().filter(|s| s.starts_with("Unknown")).count();
-                        if n_unknown > 0 {
-                            "Unknown_{:02}".to_string()
-                        } else {
-                            "Unknown".to_string()
-                        }
-                    };
-                    fields.push(field_name);
-                }
-
-                // TODO: Extract sensor serial number from field name
-                table_builder = table_builder.field_names(fields);
-            } else {
-                table_builder = table_builder.try_push_row(data)?;
-            }
+            table_builder = table_builder.try_push_row(data)?;
         }
     }
 
     let log_data = table_builder.try_build()?;
+
+    if !sensors.is_empty() {
+        attr_headers.push("Log Data".to_string());
+        let mut sensor_attr: Map<String, Value> = Map::new();
+        sensor_attr.insert(
+            "Sensors".to_string(),
+            Value::Array(
+                sensors
+                    .into_iter()
+                    .map(|(name, type_, serial)| {
+                        json!({
+                            "Sensor": name,
+                            "Type": json!(type_),
+                            "Serial": json!(serial)
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        );
+        attrs.push(sensor_attr)
+    }
 
     let mut attr = Map::new();
     for (k, v) in attr_headers.into_iter().zip(attrs) {
@@ -158,7 +187,7 @@ mod tests {
 <html>
     <head></head>
     <body>
-        <table>
+        <table id="isi-report">
         <tr class="sectionHeader"><td isi-group="LocationProperties">Location Properties</td></tr>
         <tr class="sectionMember"><td isi-group-member="LocationProperties" isi-property="Name" isi-text-node=""><span isi-label="">Location Name</span> = <span isi-value="">Device Location</span></td></tr>
         <tr class="sectionHeader"><td isi-group="ReportProperties">Report Properties</td></tr>
@@ -214,6 +243,105 @@ mod tests {
                     "Duration": "00:35:06",
                     "Readings": "1053"
                 },
+                "Log Data": {
+                    "Sensors": [
+                        {
+                            "Sensor": "Actual Conductivity",
+                            "Type": 56,
+                            "Serial": 999997
+                        },
+                        {
+                            "Sensor": "Specific Conductivity",
+                            "Type": 56,
+                            "Serial": 999997
+                        },
+                        {
+                            "Sensor": "Salinity",
+                            "Type": 56,
+                            "Serial": 999997
+                        },
+                        {
+                            "Sensor": "Resistivity",
+                            "Type": 56,
+                            "Serial": 999997
+                        },
+                        {
+                            "Sensor": "Density of Water",
+                            "Type": 56,
+                            "Serial": 999997
+                        },
+                        {
+                            "Sensor": "TDS",
+                            "Type": 56,
+                            "Serial": 999997
+                        },
+                        {
+                            "Sensor": "DO",
+                            "Type": 57,
+                            "Serial": 999995
+                        },
+                        {
+                            "Sensor": "DO % Saturation",
+                            "Type": 57,
+                            "Serial": 999995
+                        },
+                        {
+                            "Sensor": "pO₂",
+                            "Type": 57,
+                            "Serial": 999995
+                        },
+                        {
+                            "Sensor": "pH",
+                            "Type": 58,
+                            "Serial": 999991
+                        },
+                        {
+                            "Sensor": "pH(mV)",
+                            "Type": 58,
+                            "Serial": 999991
+                        },
+                        {
+                            "Sensor": "ORP",
+                            "Type": 58,
+                            "Serial": 999991
+                        },
+                        {
+                            "Sensor": "Turbidity",
+                            "Type": 50,
+                            "Serial": 999998
+                        },
+                        {
+                            "Sensor": "Temperature",
+                            "Type": 79,
+                            "Serial": 999996
+                        },
+                        {
+                            "Sensor": "Barometric Pressure",
+                            "Type": 59,
+                            "Serial": 999996
+                        },
+                        {
+                            "Sensor": "Pressure",
+                            "Type": 54,
+                            "Serial": 999999
+                        },
+                        {
+                            "Sensor": "Depth",
+                            "Type": 54,
+                            "Serial": 999999
+                        },
+                        {
+                            "Sensor": "External Voltage",
+                            "Type": 79,
+                            "Serial": 999996
+                        },
+                        {
+                            "Sensor": "Battery Capacity",
+                            "Type": 79,
+                            "Serial": 999996
+                        }
+                    ]
+                }
             }))
             .unwrap()
         );
@@ -228,25 +356,25 @@ mod tests {
                 .collect::<Vec<String>>(),
             vec![
                 "Date Time",
-                "Actual Conductivity (µS/cm) (999997)",
-                "Specific Conductivity (µS/cm) (999997)",
-                "Salinity (PSU) (999997)",
-                "Resistivity (Ω-cm) (999997)",
-                "Density of Water (g/cm³) (999997)",
-                "TDS (ppm) (999997)",
-                "DO (mg/L) (999995)",
-                "DO % Saturation (DO % sat) (999995)",
-                "pO₂ (Torr) (999995)",
-                "pH (pH) (999991)",
-                "pH(mV) (mV) (999991)",
-                "ORP (mV) (999991)",
-                "Turbidity (NTU) (999998)",
-                "Temperature (°C) (999996)",
-                "Barometric Pressure (mmHg) (999996)",
-                "Pressure (psi) (999999)",
-                "Depth (m) (999999)",
-                "External Voltage (V) (999996)",
-                "Battery Capacity (%) (999996)",
+                "Actual Conductivity (µS/cm)",
+                "Specific Conductivity (µS/cm)",
+                "Salinity (PSU)",
+                "Resistivity (Ω-cm)",
+                "Density of Water (g/cm³)",
+                "TDS (ppm)",
+                "DO (mg/L)",
+                "DO % Saturation (DO % sat)",
+                "pO₂ (Torr)",
+                "pH (pH)",
+                "pH(mV) (mV)",
+                "ORP (mV)",
+                "Turbidity (NTU)",
+                "Temperature (°C)",
+                "Barometric Pressure (mmHg)",
+                "Pressure (psi)",
+                "Depth (m)",
+                "External Voltage (V)",
+                "Battery Capacity (%)",
                 "Marked"
             ]
         );
