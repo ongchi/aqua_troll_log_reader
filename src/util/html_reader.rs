@@ -6,14 +6,16 @@ use num_traits::FromPrimitive;
 use scraper::{Html, Selector};
 use serde_json::{json, Map, Value};
 
+use super::common::{DateTimeParser, TableBuilder};
 use super::param::Parameter;
 use super::unit::Unit;
-use crate::{error::AquaTrollLogError, util::common::TableBuilder};
+use crate::error::AquaTrollLogError;
 
 // Log reader for In-Situ HTML files
 // ref: https://in-situ.com/en/html-parsing-guide
 pub(crate) fn read_html<R: Read>(
     reader: &mut R,
+    datetime_parser: &DateTimeParser,
 ) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
     let mut buf = vec![];
     let _ = reader.read_to_end(&mut buf)?;
@@ -28,7 +30,7 @@ pub(crate) fn read_html<R: Read>(
     let header_selector = Selector::parse("table#isi-report tr").unwrap();
     let data_selector = Selector::parse("table#isi-report td").unwrap();
 
-    let mut table_builder = TableBuilder::new();
+    let mut table_builder = TableBuilder::new().with_datetime_parser(datetime_parser.clone());
 
     for row in document.select(&header_selector) {
         let is_section_header = row
@@ -168,11 +170,12 @@ pub(crate) fn read_html<R: Read>(
 
 pub(crate) fn read_zipped_html<R: Read + Seek>(
     reader: R,
+    datetime_parser: &DateTimeParser,
 ) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
     let mut zip = zip::ZipArchive::new(reader)?;
     let mut html_file = zip.by_index(0)?;
 
-    read_html(&mut html_file)
+    read_html(&mut html_file, datetime_parser)
 }
 
 #[cfg(test)]
@@ -228,7 +231,7 @@ mod tests {
     #[test]
     fn log_html() {
         let mut reader = Cursor::new(TEST_CONTENT.as_bytes());
-        let (attr, log_data) = read_html(&mut reader).unwrap();
+        let (attr, log_data) = read_html(&mut reader, &DateTimeParser::Default).unwrap();
 
         // Check attributes of log file
         assert_eq!(
@@ -355,7 +358,7 @@ mod tests {
                 .map(|f| f.name().to_string())
                 .collect::<Vec<String>>(),
             vec![
-                "Date Time",
+                "DateTime",
                 "Actual Conductivity (µS/cm)",
                 "Specific Conductivity (µS/cm)",
                 "Salinity (PSU)",

@@ -11,7 +11,8 @@ fn main() -> Result<(), AquaTrollLogError> {
         env!["CARGO_MANIFEST_DIR"]
     ))?;
 
-    let log = AquaTrollLogReader::from_txt(&mut file)?;
+    let reader = AquaTrollLogReader::default();
+    let log = reader.read_txt(&mut file)?;
 
     // Write attr to json file
     let mut json_file = File::create("ex_txt_attr.json")?;

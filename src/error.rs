@@ -1,6 +1,6 @@
 #[derive(thiserror::Error, Debug)]
 pub struct ErrorWithPartialResult {
-    pub result: Box<crate::AquaTrollLogReader>,
+    pub result: Box<crate::AquaTrollLogData>,
     pub errors: Vec<csv::Error>,
 }
 

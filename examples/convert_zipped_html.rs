@@ -14,7 +14,8 @@ fn main() -> Result<(), AquaTrollLogError> {
         env!["CARGO_MANIFEST_DIR"]
     ))?;
     let mut file = BufReader::new(&file);
-    let log = AquaTrollLogReader::from_zipped_html(&mut file)?;
+    let reader = AquaTrollLogReader::default();
+    let log = reader.read_zipped_html(&mut file)?;
 
     // Write attr to json file
     let mut json_file = File::create("ex_html_attr.json")?;

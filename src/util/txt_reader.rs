@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 
 use crate::error::AquaTrollLogError;
 
-use super::common::TableBuilder;
+use super::common::{DateTimeParser, TableBuilder};
 
 #[derive(Debug)]
 enum LineContent<'a> {
@@ -131,6 +131,7 @@ fn detect_column_span<R: BufRead>(
 /// Parse table data of the log file
 pub(crate) fn read_table<R: BufRead + Seek>(
     reader: &mut R,
+    datetime_parser: &DateTimeParser,
 ) -> Result<RecordBatch, AquaTrollLogError> {
     let mut buf = String::new();
 
@@ -152,7 +153,9 @@ pub(crate) fn read_table<R: BufRead + Seek>(
                 .to_string()
         })
         .collect();
-    let mut table_builder = TableBuilder::new().field_names(fields);
+    let mut table_builder = TableBuilder::new()
+        .field_names(fields)
+        .with_datetime_parser(datetime_parser.clone());
 
     let mut buf = String::new();
     reader.read_line(&mut buf)?;
@@ -404,10 +407,10 @@ ________________________________________________________________________________
     #[test]
     fn log_note_parser() {
         let mut buf = Cursor::new(LOG_NOTE_TXT.as_bytes());
-        let notes = read_table(&mut buf).unwrap();
+        let notes = read_table(&mut buf, &DateTimeParser::Default).unwrap();
         assert_eq!(notes.num_columns(), 2);
         assert_eq!(notes.num_rows(), 3);
-        assert_eq!(notes.schema().field(0).name(), "Date and Time");
+        assert_eq!(notes.schema().field(0).name(), "DateTime");
         assert_eq!(notes.schema().field(1).name(), "Note");
     }
 
@@ -449,10 +452,10 @@ Date and Time              Seconds          pH (pH)                             
     #[test]
     fn log_data_table() {
         let mut buf = Cursor::new(LOG_DATA_TXT.as_bytes());
-        let data_table = read_table(&mut buf).unwrap();
+        let data_table = read_table(&mut buf, &DateTimeParser::Default).unwrap();
 
         assert_eq!(data_table.num_columns(), 22);
-        assert_eq!(data_table.schema().field(0).name(), "Date and Time");
+        assert_eq!(data_table.schema().field(0).name(), "DateTime");
         assert_eq!(data_table.schema().field(2).name(), "pH (pH)");
     }
 }

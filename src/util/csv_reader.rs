@@ -6,7 +6,7 @@ use csv::StringRecord;
 
 use crate::error::AquaTrollLogError;
 
-use super::common::TableBuilder;
+use super::common::{DateTimeParser, TableBuilder};
 
 #[derive(thiserror::Error, Debug)]
 pub struct ErrorWithCsvPartialResult {
@@ -28,6 +28,7 @@ impl std::fmt::Display for ErrorWithCsvPartialResult {
 /// Read csv log data
 pub(crate) fn read_table<R: BufRead + Seek>(
     reader: &mut R,
+    datetime_parser: &DateTimeParser,
 ) -> Result<RecordBatch, AquaTrollLogError> {
     let mut builder = csv::ReaderBuilder::new();
     builder.has_headers(true);
@@ -39,7 +40,9 @@ pub(crate) fn read_table<R: BufRead + Seek>(
     };
     let fields_len = fields.len();
 
-    let mut table_builder = TableBuilder::new().field_names(fields.clone());
+    let mut table_builder = TableBuilder::new()
+        .field_names(fields.clone())
+        .with_datetime_parser(datetime_parser.clone());
     let mut record = StringRecord::new();
 
     let mut csv_errors: Vec<csv::Error> = vec![];
@@ -99,7 +102,7 @@ mod tests {
     #[test]
     fn test_read_table() {
         let mut reader = Cursor::new(LOG_DATA_CSV);
-        let data_table = read_table(&mut reader).unwrap();
+        let data_table = read_table(&mut reader, &DateTimeParser::Default).unwrap();
         assert_eq!(
             data_table
                 .schema()
@@ -108,7 +111,7 @@ mod tests {
                 .map(|f| f.name())
                 .collect::<Vec<&String>>(),
             vec![
-                "Date/Time",
+                "DateTime",
                 "Temp(C)",
                 "CNDCT(µS/cm)",
                 "SPCNDCT(µS/cm)",
@@ -138,7 +141,7 @@ Date/Time,Temp(C),CNDCT(µS/cm),SPCNDCT(µS/cm),R(ohm-cm),SA(PSU),TDS(ppm),pH(pH
     #[test]
     fn test_read_multiple_headers_table() {
         let mut reader = Cursor::new(LOG_DATA_MULTIPLE_HEADERS_CSV);
-        let data_table = read_table(&mut reader).unwrap();
+        let data_table = read_table(&mut reader, &DateTimeParser::Default).unwrap();
         assert_eq!(data_table.num_rows(), 6);
     }
 
@@ -154,7 +157,7 @@ Date/Time,Temp(C),CNDCT(µS/cm),SPCNDCT(µS/cm),R(ohm-cm),SA(PSU),TDS(ppm),pH(pH
     #[test]
     fn test_read_incomplete_table() {
         let mut reader = Cursor::new(LOG_DATA_INCOMPLETE_CSV);
-        let data_table = match read_table(&mut reader) {
+        let data_table = match read_table(&mut reader, &DateTimeParser::Default) {
             Err(AquaTrollLogError::WithCsvPartialResult(partial_result)) => partial_result.result,
             _ => panic!("Expected a CSV error with partial result"),
         };

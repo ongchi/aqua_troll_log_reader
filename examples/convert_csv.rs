@@ -11,7 +11,8 @@ fn main() -> Result<(), AquaTrollLogError> {
         env!["CARGO_MANIFEST_DIR"]
     ))?;
 
-    let log = AquaTrollLogReader::from_csv(&mut file)?;
+    let reader = AquaTrollLogReader::default();
+    let log = reader.read_csv(&mut file)?;
 
     // Write log_data to json file
     let log_data_json_file = File::create("ex_csv_data.csv")?;
