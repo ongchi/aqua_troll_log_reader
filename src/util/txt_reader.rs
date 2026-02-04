@@ -2,6 +2,7 @@ use std::io::{BufRead, Seek, SeekFrom};
 
 use arrow::array::RecordBatch;
 use serde_json::{Map, Value};
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::error::AquaTrollLogError;
 
@@ -181,16 +182,20 @@ pub(crate) fn read_table<R: BufRead + Seek>(
             break;
         }
 
-        table_builder = table_builder.try_push_row(
-            col_ranges
-                .iter()
-                .map(|range| {
-                    buf_trim[range.0..usize::min(range.1 + 1, buf_trim.len())]
-                        .trim()
-                        .to_string()
-                })
-                .collect(),
-        )?;
+        // A single `grapheme` may compose with multiple code points
+        let buf_graphemes: Vec<&str> = buf_trim.graphemes(true).collect();
+        let buf_len = buf_graphemes.len();
+
+        let row = col_ranges
+            .iter()
+            .map(|&(l, r)| {
+                buf_graphemes[l..usize::min(r + 1, buf_len)]
+                    .concat()
+                    .trim()
+                    .to_string()
+            })
+            .collect();
+        table_builder = table_builder.try_push_row(row)?;
     }
 
     table_builder.try_build()
