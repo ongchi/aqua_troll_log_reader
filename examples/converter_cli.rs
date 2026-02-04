@@ -1,15 +1,35 @@
 use std::fs::File;
 use std::path::Path;
+use std::rc::Rc;
 use std::{env, sync::Arc};
 
 use arrow::array::{Array, StringArray};
 use arrow::csv::Writer as CsvWriter;
 use arrow_schema::{DataType, Field, Schema};
-use chrono::{Local, TimeZone, Utc};
+use chrono::{Local, NaiveDateTime, TimeZone, Utc};
 
-use aqua_troll_log_reader::{AquaTrollLogError, AquaTrollLogReader};
+use aqua_troll_log_reader::{AquaTrollLogError, AquaTrollLogReader, DateTimeParserFnRef};
 
-// Convert log file to json and csv format
+pub fn datetime_str_parser(datetime: &str) -> Result<i64, AquaTrollLogError> {
+    let offset = *Local::now().offset();
+
+    let datetime = if datetime.contains("上午") {
+        datetime.replace("上午", "AM")
+    } else if datetime.contains("下午") {
+        datetime.replace("下午", "PM")
+    } else {
+        datetime.to_string()
+    };
+
+    Ok(
+        NaiveDateTime::parse_from_str(&datetime, "%Y/%-m/%-d %p %I:%M:%S")
+            .or_else(|_| NaiveDateTime::parse_from_str(&datetime, "%Y/%-m/%-d %I:%M:%S %p"))
+            .or_else(|_| NaiveDateTime::parse_from_str(&datetime, "%Y-%-m-%-d %H:%M:%S"))
+            .map(|t| t.and_local_timezone(offset).unwrap())
+            .map(|t| t.timestamp())?,
+    )
+}
+
 fn main() -> Result<(), AquaTrollLogError> {
     let args: Vec<String> = env::args().collect();
 
@@ -21,7 +41,8 @@ fn main() -> Result<(), AquaTrollLogError> {
     let input = &args[1];
 
     let mut file = File::open(input)?;
-    let log_reader = AquaTrollLogReader::default();
+    let datetime_parser = Rc::new(datetime_str_parser) as DateTimeParserFnRef;
+    let log_reader = AquaTrollLogReader::new(datetime_parser.into());
     let log = log_reader.read_txt(&mut file)?;
 
     let path = Path::new(input);
@@ -33,7 +54,7 @@ fn main() -> Result<(), AquaTrollLogError> {
             let schema = log.log_data.schema();
             let mut new_fields = vec![];
             for field in schema.fields().iter() {
-                if field.name() == "Date and Time" {
+                if field.name() == "DateTime" {
                     let new_field = Field::new("DateTime", DataType::Utf8, field.is_nullable());
                     new_fields.push(Arc::new(new_field));
                 } else {
@@ -41,7 +62,7 @@ fn main() -> Result<(), AquaTrollLogError> {
                 }
             }
             let new_schema = Arc::new(Schema::new(new_fields));
-            let datetime_index = schema.index_of("Date and Time")?;
+            let datetime_index = schema.index_of("DateTime")?;
 
             let mut new_columns: Vec<Arc<dyn Array>> = vec![];
             for (col_idx, column) in log.log_data.columns().iter().enumerate() {
