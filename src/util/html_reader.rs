@@ -1,7 +1,6 @@
 use std::io::{Read, Seek};
 
 use arrow::array::RecordBatch;
-use itertools::izip;
 use num_traits::FromPrimitive;
 use scraper::{Html, Selector};
 use serde_json::{json, Map, Value};
@@ -57,71 +56,49 @@ pub(crate) fn read_html<R: Read>(
                 .map(|(k, v)| cur_attr.insert(k, Value::String(v)))
                 .ok_or(AquaTrollLogError::InvalidData)?;
         } else if is_data_header {
-            let attrs: Vec<&str> = row
-                .select(&data_selector)
-                .filter_map(|h| h.attr("isi-data-column-header"))
-                .collect();
+            let mut fields: Vec<String> = Vec::new();
 
-            let params: Vec<Option<Parameter>> = row
-                .select(&data_selector)
-                .map(|h| h.attr("isi-parameter-type").unwrap_or(""))
-                .map(|v| v.parse().unwrap_or(0))
-                .map(Parameter::from_u8)
-                .collect();
+            for cell in row.select(&data_selector) {
+                let attr = cell.attr("isi-data-column-header").unwrap_or("");
+                let param = cell
+                    .attr("isi-parameter-type")
+                    .and_then(|v| v.parse().ok())
+                    .and_then(Parameter::from_u8);
+                let unit = cell
+                    .attr("isi-unit-type")
+                    .and_then(|v| v.parse().ok())
+                    .and_then(Unit::from_u16);
+                let sensor_type: Option<u32> =
+                    cell.attr("isi-sensor-type").and_then(|v| v.parse().ok());
+                let serial: Option<u64> = cell
+                    .attr("isi-sensor-serial-number")
+                    .and_then(|v| v.parse().ok());
 
-            let units: Vec<Option<Unit>> = row
-                .select(&data_selector)
-                .map(|h| h.attr("isi-unit-type").unwrap_or(""))
-                .map(|v| v.parse().unwrap_or(0))
-                .map(Unit::from_u16)
-                .collect();
-
-            let sensor_types: Vec<Option<u32>> = row
-                .select(&data_selector)
-                .map(|h| h.attr("isi-sensor-type").unwrap_or(""))
-                .map(|v| v.parse().ok())
-                .collect();
-
-            let sensor_serials: Vec<Option<u64>> = row
-                .select(&data_selector)
-                .map(|h| h.attr("isi-sensor-serial-number").unwrap_or(""))
-                .map(|v| v.parse().ok())
-                .collect();
-
-            let mut fields: Vec<String> = vec![];
-            for (_attr, _param, _unit, _serial, _type) in
-                izip!(attrs, params, units, sensor_serials, sensor_types)
-            {
-                let field_name = if let Some(param) = _param {
-                    if let Some(unit) = _unit {
-                        // Collect sensor infomation
-                        if _serial.is_some() | _type.is_some() {
-                            if let Some(serial) = _serial {
-                                if let Some(type_) = _type {
-                                    sensors.push((param.to_string(), type_, serial));
-                                } else {
-                                    tracing::warn!("{}: Sensor type not found", param)
-                                }
-                            } else {
-                                tracing::warn!("{}: Sensor serial not found", param)
-                            };
+                let field_name = match (param, unit) {
+                    (Some(p), Some(u)) => {
+                        // Collect sensor information if both serial and type are present
+                        match (serial, sensor_type) {
+                            (Some(s), Some(t)) => sensors.push((p.to_string(), t, s)),
+                            (None, Some(_)) => tracing::warn!("{}: Sensor serial not found", p),
+                            (Some(_), None) => tracing::warn!("{}: Sensor type not found", p),
+                            (None, None) => {}
                         }
-
-                        format!("{} ({})", param, unit)
-                    } else {
-                        param.to_string()
+                        format!("{} ({})", p, u)
                     }
-                } else if _attr == "DateTime" {
-                    "Date Time".to_string()
-                } else if _attr == "Marked" {
-                    "Marked".to_string()
-                } else {
-                    let n_unknown = fields.iter().filter(|s| s.starts_with("Unknown")).count();
-                    if n_unknown > 0 {
-                        "Unknown_{:02}".to_string()
-                    } else {
-                        "Unknown".to_string()
-                    }
+                    (Some(p), None) => p.to_string(),
+                    (None, _) => match attr {
+                        "DateTime" => "DateTime".to_string(),
+                        "Marked" => "Marked".to_string(),
+                        _ => {
+                            let n_unknown =
+                                fields.iter().filter(|s| s.starts_with("Unknown")).count();
+                            if n_unknown > 0 {
+                                format!("Unknown_{:02}", n_unknown)
+                            } else {
+                                "Unknown".to_string()
+                            }
+                        }
+                    },
                 };
                 fields.push(field_name);
             }

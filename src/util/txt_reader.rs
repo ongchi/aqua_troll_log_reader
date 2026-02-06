@@ -81,52 +81,54 @@ pub(crate) fn read_attr<R: BufRead + Seek>(
 fn detect_column_span<R: BufRead>(
     reader: &mut R,
 ) -> Result<(usize, Vec<(usize, usize)>), AquaTrollLogError> {
-    let mut spans = vec![];
     let mut line_offset = 0usize;
-
     let mut buf = String::new();
+
     loop {
         buf.clear();
-        let read_size = reader.read_line(&mut buf)?;
-
-        if read_size == 0 {
+        if reader.read_line(&mut buf)? == 0 {
             return Err(AquaTrollLogError::UnexpectedEof);
         }
 
         let buf_trim = buf.trim();
 
-        // Empty line
         if buf_trim.is_empty() {
             line_offset += 1;
             continue;
         }
 
+        // Check if this is the separator line (dashes and spaces only)
         if buf_trim.chars().all(|c| c == '-' || c.is_whitespace()) {
-            let mut range = (0, 0);
-            for (n, c) in buf_trim.chars().enumerate() {
-                if c == '-' {
-                    if range.1 >= range.0 {
-                        range.1 = n
-                    } else {
-                        range = (n, n)
-                    }
-                } else if range.1 > range.0 {
-                    spans.push(range);
-                    range = (n + 1, n)
-                } else {
-                    range = (n + 1, n)
-                }
-            }
-            if range != (0, 0) {
-                spans.push(range);
-            }
-            break;
+            let spans = extract_dash_spans(buf_trim);
+            return Ok((line_offset, spans));
         }
 
         line_offset += 1;
     }
+}
 
-    Ok((line_offset, spans))
+/// Extract column spans from a dash-separator line (e.g., "----  ------  ---")
+fn extract_dash_spans(line: &str) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut start = None;
+
+    for (i, c) in line.chars().enumerate() {
+        match (c == '-', start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                spans.push((s, i - 1));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+
+    // Handle trailing dash sequence
+    if let Some(s) = start {
+        spans.push((s, line.len() - 1));
+    }
+
+    spans
 }
 
 /// Parse table data of the log file
@@ -201,6 +203,17 @@ pub(crate) fn read_table<R: BufRead + Seek>(
     table_builder.try_build()
 }
 
+fn read_entry<'a>(buf: &'a str, expected_key: &str) -> Result<&'a str, AquaTrollLogError> {
+    match parse_line_content(buf) {
+        LineContent::Entry(key, value) if key == expected_key => Ok(value),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Expected '{}' in Log Data", expected_key),
+        )
+        .into()),
+    }
+}
+
 pub(crate) fn read_log_data_attr<R: BufRead + Seek>(
     reader: &mut R,
 ) -> Result<Map<String, Value>, AquaTrollLogError> {
@@ -208,87 +221,53 @@ pub(crate) fn read_log_data_attr<R: BufRead + Seek>(
 
     // Skip until "Log Data:"
     loop {
-        let read_size = reader.read_line(&mut buf)?;
-
-        // End of file
-        if read_size == 0 {
-            break;
-        }
-
-        if buf.trim() == "Log Data:" {
-            buf.clear();
-            break;
-        }
         buf.clear();
+        if reader.read_line(&mut buf)? == 0 {
+            break;
+        }
+        if buf.trim() == "Log Data:" {
+            break;
+        }
     }
 
     let mut log_data = Map::new();
 
     // Get record count
-    let _ = reader.read_line(&mut buf)?;
-    let record_count = if let LineContent::Entry(key, value) = parse_line_content(&buf) {
-        if key != "Record Count" {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Expected 'Record Count' in Log Data",
-            ))?
-        }
-        value.parse::<usize>()?
-    } else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Expected 'Record Count' in Log Data",
-        ))?;
-    };
     buf.clear();
+    reader.read_line(&mut buf)?;
+    let record_count: usize = read_entry(&buf, "Record Count")?.parse()?;
     log_data.insert(
         "Record Count".to_string(),
         Value::Number(record_count.into()),
     );
 
     // Get sensor count
-    let _ = reader.read_line(&mut buf)?;
-    let sensor_count = if let LineContent::Entry(key, value) = parse_line_content(&buf) {
-        if key != "Sensors" {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Expected 'Sensors' in Log Data",
-            ))?
-        }
-        value.parse::<usize>()?
-    } else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "Expected 'Sensors' in Log Data",
-        ))?;
-    };
     buf.clear();
+    reader.read_line(&mut buf)?;
+    let sensor_count: usize = read_entry(&buf, "Sensors")?.parse()?;
 
     // Get sensors data
     let mut sensors = vec![];
     for n in 1..=sensor_count {
-        let _ = reader.read_line(&mut buf)?;
+        buf.clear();
+        reader.read_line(&mut buf)?;
         if let LineContent::Entry(key, value) = parse_line_content(&buf) {
-            if key
+            let index: usize = key
                 .split_whitespace()
                 .next()
-                .and_then(|k| k.parse::<usize>().ok())
-                .ok_or(AquaTrollLogError::InvalidData)?
-                != n
-            {
+                .and_then(|k| k.parse().ok())
+                .ok_or(AquaTrollLogError::InvalidData)?;
+            if index != n {
                 return Err(AquaTrollLogError::InvalidData);
             }
             let serial = key
                 .split_whitespace()
                 .last()
                 .ok_or(AquaTrollLogError::InvalidData)?;
-            let sensor = value;
-            sensors.push((sensor.to_string(), serial.to_string()))
+            sensors.push((value.to_string(), serial.to_string()));
         } else {
             return Err(AquaTrollLogError::InvalidData);
-        };
-
-        buf.clear();
+        }
     }
     log_data.insert(
         "Sensors".to_string(),
@@ -296,29 +275,23 @@ pub(crate) fn read_log_data_attr<R: BufRead + Seek>(
             sensors
                 .into_iter()
                 .map(|(sensor, serial)| {
-                    Value::Object(
-                        vec![
-                            ("Sensor".to_string(), Value::String(sensor)),
-                            ("Serial".to_string(), Value::String(serial)),
-                        ]
-                        .into_iter()
-                        .collect(),
-                    )
+                    Value::Object(Map::from_iter([
+                        ("Sensor".to_string(), Value::String(sensor)),
+                        ("Serial".to_string(), Value::String(serial)),
+                    ]))
                 })
                 .collect(),
         ),
     );
 
     // Get time zone
-    let _ = reader.read_line(&mut buf)?;
-    if let LineContent::Entry(key, value) = parse_line_content(&buf) {
-        if key != "Time Zone" {
-            return Err(AquaTrollLogError::InvalidData);
-        }
-        log_data.insert(key.to_string(), Value::String(value.to_string()));
-    } else {
-        return Err(AquaTrollLogError::InvalidData);
-    };
+    buf.clear();
+    reader.read_line(&mut buf)?;
+    let time_zone = read_entry(&buf, "Time Zone")?;
+    log_data.insert(
+        "Time Zone".to_string(),
+        Value::String(time_zone.to_string()),
+    );
 
     Ok(log_data)
 }

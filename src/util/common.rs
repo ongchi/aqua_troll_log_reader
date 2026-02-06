@@ -22,7 +22,6 @@ pub(crate) fn parse_datetime_str(datetime: &str) -> Result<i64, AquaTrollLogErro
     )
 }
 
-#[allow(dead_code)]
 pub(crate) fn parse_datetime_with_format(
     datetime: &str,
     format: &str,
@@ -44,7 +43,6 @@ impl std::fmt::Debug for DateTimeParserFn {
 }
 
 #[derive(Default, Debug, Clone)]
-#[allow(dead_code)]
 pub enum DateTimeParser {
     #[default]
     Default,
@@ -90,7 +88,7 @@ impl TableBuilder {
     pub fn new() -> Self {
         Self {
             schema: None,
-            data_builders: vec![],
+            data_builders: Vec::new(),
             datetime_parser: DateTimeParser::Default,
         }
     }

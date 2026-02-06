@@ -30,56 +30,49 @@ pub(crate) fn read_table<R: BufRead + Seek>(
     reader: &mut R,
     datetime_parser: &DateTimeParser,
 ) -> Result<RecordBatch, AquaTrollLogError> {
-    let mut builder = csv::ReaderBuilder::new();
-    builder.has_headers(true);
-    let mut csv_reader = builder.from_reader(reader);
+    let mut csv_reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(reader);
 
-    let fields: Vec<String> = {
-        let headers = &csv_reader.headers().unwrap().clone();
-        headers.iter().map(|s| s.to_string()).collect()
-    };
+    let fields: Vec<String> = csv_reader
+        .headers()?
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let fields_len = fields.len();
 
     let mut table_builder = TableBuilder::new()
         .field_names(fields.clone())
         .with_datetime_parser(datetime_parser.clone());
     let mut record = StringRecord::new();
-
-    let mut csv_errors: Vec<csv::Error> = vec![];
+    let mut csv_errors: Vec<csv::Error> = Vec::new();
 
     loop {
         match csv_reader.read_record(&mut record) {
-            Ok(next) => {
+            Ok(false) => break,
+            Ok(true) => {
                 let values: Vec<String> = record.iter().map(|v| v.to_string()).collect();
-                if values.len() == fields_len
-                    && !fields.iter().zip(values.iter()).any(|(f, v)| f == v)
-                {
+                // Skip rows that don't match field count or are duplicate headers
+                let is_header_row = fields.iter().zip(&values).all(|(f, v)| f == v);
+                if values.len() == fields_len && !is_header_row {
                     table_builder = table_builder.try_push_row(values)?;
-                };
-                if !next {
-                    break;
                 }
             }
-            Err(e) => match e.kind() {
-                // Skip invalid rows
-                ErrorKind::UnequalLengths { .. } => {
-                    csv_errors.push(e);
-                    continue;
-                }
-                _ => return Err(AquaTrollLogError::from(e)),
-            },
+            Err(e) if matches!(e.kind(), ErrorKind::UnequalLengths { .. }) => {
+                csv_errors.push(e);
+            }
+            Err(e) => return Err(e.into()),
         }
     }
 
     if csv_errors.is_empty() {
         table_builder.try_build()
     } else {
-        Err(AquaTrollLogError::WithCsvPartialResult(
-            ErrorWithCsvPartialResult {
-                result: Box::new(table_builder.try_build()?),
-                errors: csv_errors,
-            },
-        ))
+        Err(ErrorWithCsvPartialResult {
+            result: Box::new(table_builder.try_build()?),
+            errors: csv_errors,
+        }
+        .into())
     }
 }
 

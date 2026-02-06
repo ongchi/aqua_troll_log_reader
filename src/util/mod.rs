@@ -1,5 +1,5 @@
 pub(crate) mod common;
-pub mod csv_reader;
+pub(crate) mod csv_reader;
 mod html_reader;
 mod param;
 mod txt_reader;

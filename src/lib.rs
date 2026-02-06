@@ -4,7 +4,7 @@ mod util;
 use std::io::{Cursor, Read, Seek};
 
 use arrow::array::RecordBatch;
-use encoding_rs::{ISO_8859_3, UTF_16LE};
+use encoding_rs::{Encoding, ISO_8859_3, UTF_16LE};
 use encoding_rs_io::DecodeReaderBytesBuilder;
 pub use error::{AquaTrollLogError, ErrorWithPartialResult};
 use serde::Serialize;
@@ -16,6 +16,18 @@ use util::{
     read_table, read_zipped_html,
 };
 
+fn decode_reader<R: Read>(
+    reader: &mut R,
+    encoding: &'static Encoding,
+) -> std::io::Result<Cursor<Vec<u8>>> {
+    let mut decode = DecodeReaderBytesBuilder::new()
+        .encoding(Some(encoding))
+        .build(reader);
+    let mut buf = Vec::new();
+    decode.read_to_end(&mut buf)?;
+    Ok(Cursor::new(buf))
+}
+
 #[derive(Debug)]
 pub struct AquaTrollLogData {
     pub attr: Map<String, Value>,
@@ -25,23 +37,21 @@ pub struct AquaTrollLogData {
 
 impl AquaTrollLogData {
     pub fn to_json(&self) -> Result<Value, AquaTrollLogError> {
-        let mut json_object = Map::new();
+        let log_note = self
+            .log_note
+            .as_ref()
+            .map(record_batch_to_json)
+            .transpose()?
+            .unwrap_or(Value::Null);
 
-        json_object.insert("attr".to_string(), Value::Object(self.attr.clone()));
-        json_object.insert(
-            "log_note".to_string(),
-            if let Some(ref log_note) = self.log_note {
-                record_batch_to_json(log_note)?
-            } else {
-                Value::Null
-            },
-        );
-        json_object.insert(
-            "log_data".to_string(),
-            record_batch_to_json(&self.log_data)?,
-        );
-
-        Ok(Value::Object(json_object))
+        Ok(Value::Object(Map::from_iter([
+            ("attr".to_string(), Value::Object(self.attr.clone())),
+            ("log_note".to_string(), log_note),
+            (
+                "log_data".to_string(),
+                record_batch_to_json(&self.log_data)?,
+            ),
+        ])))
     }
 }
 
@@ -70,26 +80,20 @@ impl AquaTrollLogReader {
         &self,
         reader: &mut R,
     ) -> Result<AquaTrollLogData, AquaTrollLogError> {
-        let mut decode = DecodeReaderBytesBuilder::new()
-            .encoding(Some(ISO_8859_3))
-            .build(reader);
-        let mut buf = Vec::new();
-        let _ = decode.read_to_end(&mut buf)?;
-        let mut reader = Cursor::new(buf);
+        let mut reader = decode_reader(reader, ISO_8859_3)?;
 
         let log_data = match read_csv_table(&mut reader, &self.datetime_parser) {
             Ok(data) => data,
             Err(AquaTrollLogError::WithCsvPartialResult(part_result)) => {
-                return Err(AquaTrollLogError::WithPartialResult(
-                    ErrorWithPartialResult {
-                        result: Box::new(AquaTrollLogData {
-                            attr: Map::new(),
-                            log_note: None,
-                            log_data: *part_result.result,
-                        }),
-                        errors: part_result.errors,
-                    },
-                ));
+                return Err(ErrorWithPartialResult {
+                    result: Box::new(AquaTrollLogData {
+                        attr: Map::new(),
+                        log_note: None,
+                        log_data: *part_result.result,
+                    }),
+                    errors: part_result.errors,
+                }
+                .into());
             }
             Err(e) => return Err(e),
         };
@@ -101,17 +105,12 @@ impl AquaTrollLogReader {
         })
     }
 
+    /// Read TXT log file (UTF-16LE encoded, exported from WinSitu)
     pub fn read_txt<R: Read + Seek>(
         &self,
         reader: &mut R,
     ) -> Result<AquaTrollLogData, AquaTrollLogError> {
-        // The exported txt log file from WinSitu is encodeded with UTF-16LE.
-        let mut decode = DecodeReaderBytesBuilder::new()
-            .encoding(Some(UTF_16LE))
-            .build(reader);
-        let mut buf = Vec::new();
-        let _ = decode.read_to_end(&mut buf)?;
-        let mut reader = Cursor::new(buf);
+        let mut reader = decode_reader(reader, UTF_16LE)?;
 
         let mut attr = Map::new();
         read_attr(&mut reader, &mut attr, true)?;
