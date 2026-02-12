@@ -1,11 +1,10 @@
 use std::io::{Read, Seek};
 
-use arrow::array::RecordBatch;
 use num_traits::FromPrimitive;
 use scraper::{Html, Selector};
 use serde_json::{json, Map, Value};
 
-use super::common::{DateTimeParser, TableBuilder};
+use super::common::{DateTimeParser, Table, TableBuilder};
 use super::param::Parameter;
 use super::unit::Unit;
 use crate::error::AquaTrollLogError;
@@ -15,7 +14,7 @@ use crate::error::AquaTrollLogError;
 pub(crate) fn read_html<R: Read>(
     reader: &mut R,
     datetime_parser: &DateTimeParser,
-) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
+) -> Result<(Map<String, Value>, Table), AquaTrollLogError> {
     let mut buf = vec![];
     let _ = reader.read_to_end(&mut buf)?;
 
@@ -127,11 +126,11 @@ pub(crate) fn read_html<R: Read>(
                     .map(|(name, type_, serial)| {
                         json!({
                             "Sensor": name,
-                            "Type": json!(type_),
-                            "Serial": json!(serial)
+                            "Type": type_,
+                            "Serial": serial,
                         })
                     })
-                    .collect::<Vec<_>>(),
+                    .collect(),
             ),
         );
         attrs.push(sensor_attr)
@@ -148,7 +147,7 @@ pub(crate) fn read_html<R: Read>(
 pub(crate) fn read_zipped_html<R: Read + Seek>(
     reader: R,
     datetime_parser: &DateTimeParser,
-) -> Result<(Map<String, Value>, RecordBatch), AquaTrollLogError> {
+) -> Result<(Map<String, Value>, Table), AquaTrollLogError> {
     let mut zip = zip::ZipArchive::new(reader)?;
     let mut html_file = zip.by_index(0)?;
 
@@ -326,14 +325,9 @@ mod tests {
             .unwrap()
         );
 
-        // Check schema of table data
+        // Check columns of table data
         assert_eq!(
-            log_data
-                .schema()
-                .fields
-                .into_iter()
-                .map(|f| f.name().to_string())
-                .collect::<Vec<String>>(),
+            log_data.columns,
             vec![
                 "DateTime",
                 "Actual Conductivity (µS/cm)",

@@ -1,16 +1,15 @@
 use std::io::{BufRead, Seek};
 
-use arrow::array::RecordBatch;
 use csv::ErrorKind;
 use csv::StringRecord;
 
 use crate::error::AquaTrollLogError;
 
-use super::common::{DateTimeParser, TableBuilder};
+use super::common::{DateTimeParser, Table, TableBuilder};
 
 #[derive(thiserror::Error, Debug)]
 pub struct ErrorWithCsvPartialResult {
-    pub(crate) result: Box<RecordBatch>,
+    pub(crate) result: Box<Table>,
     pub(crate) errors: Vec<csv::Error>,
 }
 
@@ -29,7 +28,7 @@ impl std::fmt::Display for ErrorWithCsvPartialResult {
 pub(crate) fn read_table<R: BufRead + Seek>(
     reader: &mut R,
     datetime_parser: &DateTimeParser,
-) -> Result<RecordBatch, AquaTrollLogError> {
+) -> Result<Table, AquaTrollLogError> {
     let mut csv_reader = csv::ReaderBuilder::new()
         .has_headers(true)
         .from_reader(reader);
@@ -97,12 +96,7 @@ mod tests {
         let mut reader = Cursor::new(LOG_DATA_CSV);
         let data_table = read_table(&mut reader, &DateTimeParser::Default).unwrap();
         assert_eq!(
-            data_table
-                .schema()
-                .fields()
-                .iter()
-                .map(|f| f.name())
-                .collect::<Vec<&String>>(),
+            data_table.columns,
             vec![
                 "DateTime",
                 "Temp(C)",

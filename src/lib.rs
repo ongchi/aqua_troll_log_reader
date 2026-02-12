@@ -3,7 +3,6 @@ mod util;
 
 use std::io::{Cursor, Read, Seek};
 
-use arrow::array::RecordBatch;
 use encoding_rs::{Encoding, ISO_8859_3, UTF_16LE};
 use encoding_rs_io::DecodeReaderBytesBuilder;
 pub use error::{AquaTrollLogError, ErrorWithPartialResult};
@@ -11,9 +10,9 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 pub use util::common::DateTimeParser;
 pub use util::common::DateTimeParserFnRef;
+pub use util::common::{CellValue, Table};
 use util::{
-    common::record_batch_to_json, read_attr, read_csv_table, read_html, read_log_data_attr,
-    read_table, read_zipped_html,
+    read_attr, read_csv_table, read_html, read_log_data_attr, read_table, read_zipped_html,
 };
 
 fn decode_reader<R: Read>(
@@ -31,8 +30,8 @@ fn decode_reader<R: Read>(
 #[derive(Debug)]
 pub struct AquaTrollLogData {
     pub attr: Map<String, Value>,
-    pub log_note: Option<RecordBatch>,
-    pub log_data: RecordBatch,
+    pub log_note: Option<Table>,
+    pub log_data: Table,
 }
 
 impl AquaTrollLogData {
@@ -40,7 +39,7 @@ impl AquaTrollLogData {
         let log_note = self
             .log_note
             .as_ref()
-            .map(record_batch_to_json)
+            .map(serde_json::to_value)
             .transpose()?
             .unwrap_or(Value::Null);
 
@@ -49,7 +48,7 @@ impl AquaTrollLogData {
             ("log_note".to_string(), log_note),
             (
                 "log_data".to_string(),
-                record_batch_to_json(&self.log_data)?,
+                serde_json::to_value(&self.log_data)?,
             ),
         ])))
     }

@@ -1,12 +1,11 @@
 use std::io::{BufRead, Seek, SeekFrom};
 
-use arrow::array::RecordBatch;
 use serde_json::{Map, Value};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::error::AquaTrollLogError;
 
-use super::common::{DateTimeParser, TableBuilder};
+use super::common::{DateTimeParser, Table, TableBuilder};
 
 #[derive(Debug)]
 enum LineContent<'a> {
@@ -26,7 +25,7 @@ fn parse_line_content(line: &str) -> LineContent<'_> {
         .unwrap_or_else(|| LineContent::Header(line_trim))
 }
 
-/// Read general atttributs of the log file
+/// Read general attributes of the log file
 pub(crate) fn read_attr<R: BufRead + Seek>(
     reader: &mut R,
     attr: &mut Map<String, Value>,
@@ -116,7 +115,7 @@ fn extract_dash_spans(line: &str) -> Vec<(usize, usize)> {
         match (c == '-', start) {
             (true, None) => start = Some(i),
             (false, Some(s)) => {
-                spans.push((s, i - 1));
+                spans.push((s, i));
                 start = None;
             }
             _ => {}
@@ -125,7 +124,7 @@ fn extract_dash_spans(line: &str) -> Vec<(usize, usize)> {
 
     // Handle trailing dash sequence
     if let Some(s) = start {
-        spans.push((s, line.len() - 1));
+        spans.push((s, line.len()));
     }
 
     spans
@@ -135,7 +134,7 @@ fn extract_dash_spans(line: &str) -> Vec<(usize, usize)> {
 pub(crate) fn read_table<R: BufRead + Seek>(
     reader: &mut R,
     datetime_parser: &DateTimeParser,
-) -> Result<RecordBatch, AquaTrollLogError> {
+) -> Result<Table, AquaTrollLogError> {
     let mut buf = String::new();
 
     let start_pos = reader.stream_position()?; // Get current position of reader
@@ -388,8 +387,8 @@ ________________________________________________________________________________
         let notes = read_table(&mut buf, &DateTimeParser::Default).unwrap();
         assert_eq!(notes.num_columns(), 2);
         assert_eq!(notes.num_rows(), 3);
-        assert_eq!(notes.schema().field(0).name(), "DateTime");
-        assert_eq!(notes.schema().field(1).name(), "Note");
+        assert_eq!(notes.column_name(0), "DateTime");
+        assert_eq!(notes.column_name(1), "Note");
     }
 
     static LOG_DATA_TXT: &str = r#"
@@ -433,7 +432,7 @@ Date and Time              Seconds          pH (pH)                             
         let data_table = read_table(&mut buf, &DateTimeParser::Default).unwrap();
 
         assert_eq!(data_table.num_columns(), 22);
-        assert_eq!(data_table.schema().field(0).name(), "DateTime");
-        assert_eq!(data_table.schema().field(2).name(), "pH (pH)");
+        assert_eq!(data_table.column_name(0), "DateTime");
+        assert_eq!(data_table.column_name(2), "pH (pH)");
     }
 }

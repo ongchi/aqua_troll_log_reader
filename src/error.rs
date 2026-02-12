@@ -27,8 +27,6 @@ pub enum AquaTrollLogError {
     #[error(transparent)]
     ParseIntError(#[from] std::num::ParseIntError),
     #[error(transparent)]
-    ArrowError(#[from] arrow::error::ArrowError),
-    #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
     CsvError(#[from] csv::Error),
